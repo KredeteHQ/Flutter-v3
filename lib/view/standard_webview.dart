@@ -1,12 +1,12 @@
-
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterwave_standard/models/responses/charge_response.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import 'flutterwave_style.dart';
 
@@ -21,18 +21,63 @@ class StandardWebView extends StatefulWidget {
 }
 
 class _StandardWebViewAppState extends State<StandardWebView> {
+  late WebViewController _webViewController;
 
   @override
   void initState() {
-    if (Platform.isAndroid) {
-      WebView.platform = SurfaceAndroidWebView();
+    // #docregion platform_features
+    late final PlatformWebViewControllerCreationParams params;
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
     }
+
+    final controller = WebViewController.fromPlatformCreationParams(params)
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (String webUrl) {
+            final url = Uri.parse(webUrl);
+            _processUrl(url);
+          },
+          onPageFinished: (String webUrl) {
+            final url = Uri.parse(webUrl);
+            _processUrl(url);
+          },
+          onWebResourceError: (WebResourceError error) {
+            debugPrint(
+              '''
+Page resource error:
+  code: ${error.errorCode}
+  description: ${error.description}
+  errorType: ${error.errorType}
+  isForMainFrame: ${error.isForMainFrame}
+          ''',
+            );
+          },
+        ),
+      )
+      ..loadRequest(
+        Uri.parse(widget.url),
+      );
+
+    if (controller.platform is AndroidWebViewController) {
+      AndroidWebViewController.enableDebugging(true);
+      (controller.platform as AndroidWebViewController)
+          .setMediaPlaybackRequiresUserGesture(false);
+    }
+
+    _webViewController = controller;
+
     super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
-
     final Set<Factory<OneSequenceGestureRecognizer>> gestureRecognizers = {
       Factory(() => EagerGestureRecognizer())
     };
@@ -49,21 +94,15 @@ class _StandardWebViewAppState extends State<StandardWebView> {
       );
     }
 
-      return SafeArea(
-          child: Scaffold(
-            key: _key,
-            appBar: appBar,
-            body: WebView(
-              initialUrl: widget.url,
-              javascriptMode:  JavascriptMode.unrestricted,
-              gestureRecognizers: gestureRecognizers,
-              onPageStarted: (webUrl) {
-                final url = Uri.parse(webUrl);
-                _processUrl(url);
-              },
-            ),
-          )
-      );
+    return SafeArea(
+        child: Scaffold(
+      key: _key,
+      appBar: appBar,
+      body: WebViewWidget(
+        controller: _webViewController,
+        gestureRecognizers: gestureRecognizers,
+      ),
+    ));
   }
 
   _processUrl(Uri uri) {
@@ -103,10 +142,10 @@ class _StandardWebViewAppState extends State<StandardWebView> {
     final id = json["id"];
 
     final ChargeResponse chargeResponse = ChargeResponse(
-        status: status,
-        transactionId: "$id",
-        txRef: txRef,
-        success: status?.contains("success") == true
+      status: status,
+      transactionId: "$id",
+      txRef: txRef,
+      success: status?.contains("success") == true,
     );
     Navigator.pop(context, chargeResponse);
   }
@@ -119,7 +158,7 @@ class _StandardWebViewAppState extends State<StandardWebView> {
       status: status,
       transactionId: id,
       txRef: txRef,
-      success: status?.contains("success") == true
+      success: status?.contains("success") == true,
     );
     Navigator.pop(context, chargeResponse);
   }
